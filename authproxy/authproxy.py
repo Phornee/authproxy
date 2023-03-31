@@ -1,8 +1,8 @@
+""" Class to perform authentication using the synology authmethods """
 import os
 import time
 from urllib import parse
 import json
-from datetime import datetime
 from pathlib import Path
 import secrets
 import jinja2
@@ -15,8 +15,11 @@ from .auth_config import mapping
 COOKIE_LIFE_MINUTES = 15
 
 
-class AuthProxy(object):
+class AuthProxy():
     """ 
+    Class to manage the authentication. 
+    The path_redirect function should be called from a '/<path:path>' flask rule
+    Also a rule '/' should call this function like this:  return self.auth_proxy.path_redirect("/")
     """
     def __init__(self) -> None:
         """
@@ -70,14 +73,15 @@ class AuthProxy(object):
             content = template.render(token=cookie_name)
             return make_response(content)
 
-    def _get_local_cookie(self, token:str):
-        cookie_path = os.path.join(self.cookie_folder, token)
+    def _get_local_cookie(self, token:str = None):
         cookie = None
-        if os.path.exists(cookie_path):
-            with open(cookie_path, 'r', encoding="utf-8") as cookie_file:
-                cookie = json.load(cookie_file)
+        if token:
+            cookie_path = os.path.join(self.cookie_folder, token)
+            if os.path.exists(cookie_path):
+                with open(cookie_path, 'r', encoding="utf-8") as cookie_file:
+                    cookie = json.load(cookie_file)
 
-                cookie['headers'] = json.loads(cookie['headers'])
+                    cookie['headers'] = json.loads(cookie['headers'])
         return cookie
 
     def _credentials_valid(self, form):
@@ -110,14 +114,15 @@ class AuthProxy(object):
                              timeout=10)
         return Response(resp.text, status=resp.status_code, content_type=resp.headers['content-type']) 
 
-    def _reask_credentials(self, req: request, old_cookie_name: str) -> Response:
+    def _reask_credentials(self, req: request, old_cookie_name: str = None) -> Response:
         new_cookie, new_cookie_name = self._build_cookie(req)
         self._clear_expired_cookies() # Housekeeping
         print(f'Creating new cookie {new_cookie_name}')
         self._write_cookie(new_cookie, new_cookie_name)
         response = self._build_auth_popup(new_cookie_name)
-        print(f'Deleting cookie in response: {old_cookie_name}')
-        response.delete_cookie('token', req.host)
+        if old_cookie_name:
+            print(f'Deleting cookie in response: {old_cookie_name}')
+            response.delete_cookie('token', req.host)
         return response
 
     def path_redirect(self, path) -> Response:
@@ -136,9 +141,7 @@ class AuthProxy(object):
 
         if path == 'authproxy_static/css/view.css':
             full_path = os.path.join(Path(__file__).parent.resolve())
-
-            response = send_from_directory(full_path, path)
-            return response
+            return send_from_directory(full_path, path)
 
         # Try to get authentication from the cookie
         cookie_name = request.cookies.get('token', None)
@@ -162,51 +165,43 @@ class AuthProxy(object):
                     data = request.get_data()
                 # Lets get the response from the internal host, and tunnel it back to client
                 if method == 'GET':
-                    return self._get_inner_get_response(host=cookie['host'],
-                                                        endpoint=path,
-                                                        params=params,
-                                                        headers=headers)
+                    response = self._get_inner_get_response(host=cookie['host'],
+                                                            endpoint=path,
+                                                            params=params,
+                                                            headers=headers)
                 else:
-                    return self._get_inner_post_response(host=cookie['host'],
-                                                         endpoint=path,
-                                                         data=data,
-                                                         headers=headers)
+                    response = self._get_inner_post_response(host=cookie['host'],
+                                                             endpoint=path,
+                                                             data=data,
+                                                             headers=headers)
             else: # We got a token, but its no longer valid --> ask again for credentials
                 print(f'NOT AUTHENTICATED: Cookie {cookie_name} DOESNT exist in local')
-                return self._reask_credentials(request, cookie_name)
+                response = self._reask_credentials(request, cookie_name)
         else:  # Not authenticated yet... lets pop the authentication popup to the user
             print('Not authenticated yet')
-            if request.form.get('from_auth'):
-                print('Request come from auth popup')
-                cookie_name = request.form.get('token', None)
-                cookie = self._get_local_cookie(cookie_name)
-                if cookie:
-                    print(f'Local cookie {cookie_name} still alive')
-                    if self._credentials_valid(request.form):
-                        print('Credentials validated by synology NAS')
-                        # Search for the cookie and redirect to related URL if present
-                        if cookie['method'] == 'GET':
-                            response = self._get_inner_get_response(cookie['host'],
+            cookie_name = request.form.get('token', None) if request.form.get('from_auth') else None
+            cookie = self._get_local_cookie(cookie_name)
+            if cookie:
+                print(f'Local cookie {cookie_name} still alive')
+                if self._credentials_valid(request.form):
+                    print('Credentials validated by synology NAS')
+                    # Search for the cookie and redirect to related URL if present
+                    if cookie['method'] == 'GET':
+                        response = self._get_inner_get_response(cookie['host'],
+                                                                cookie['endpoint'],
+                                                                cookie['params'],
+                                                                {})
+                    else:
+                        response = self._get_inner_post_response(cookie['host'],
                                                                     cookie['endpoint'],
-                                                                    cookie['params'],
+                                                                    cookie['content'],
                                                                     {})
-                        else:
-                            response = self._get_inner_post_response(cookie['host'],
-                                                                     cookie['endpoint'],
-                                                                     cookie['content'],
-                                                                     {})
-                        response.set_cookie('token', cookie_name, max_age=COOKIE_LIFE_MINUTES*60)
-                    else: # We come from the auth popup, but credentials are invalid --> ask again for credentials
-                        print('Credentials rejected by synology NAS. Reopening auth popup')
-                        response = self._build_auth_popup(cookie_name)
-                else: # We got a token, but its no longer valid --> ask again for credentials
-                    print('Local cookie expired. Reopening auth popup')
-                    response = self._reask_credentials(request, cookie_name)
-                return response
-            else: # If don´t come from auth popup, lets open it
-                print('Request doesn´t come from auth popup: lets open it fresh new...')
-                cookie, cookie_name = self._build_cookie(request)
-                self._write_cookie(cookie, cookie_name)
-                self._clear_expired_cookies() # Housekeeping
-                response = self._build_auth_popup(cookie_name)
-                return response
+                    response.set_cookie('token', cookie_name, max_age=COOKIE_LIFE_MINUTES*60)
+                else: # We come from the auth popup, but credentials are invalid --> ask again for credentials
+                    print('Credentials rejected by synology NAS. Reopening auth popup')
+                    response = self._build_auth_popup(cookie_name)
+            else: # We got a token, but its no longer valid --> ask again for credentials
+                print('Local cookie expired. Reopening auth popup')
+                response = self._reask_credentials(request, cookie_name)
+
+        return response
