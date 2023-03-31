@@ -112,6 +112,7 @@ class AuthProxy(object):
 
     def _reask_credentials(self, req: request, old_cookie_name: str) -> Response:
         new_cookie, new_cookie_name = self._build_cookie(req)
+        self._clear_expired_cookies() # Housekeeping
         print(f'Creating new cookie {new_cookie_name}')
         self._write_cookie(new_cookie, new_cookie_name)
         response = self._build_auth_popup(new_cookie_name)
