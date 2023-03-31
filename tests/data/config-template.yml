@@ -1,0 +1,7 @@
+logpath: log
+influxdbconn:
+  type: mock
+  token: ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  org: +++++++++++++
+  bucket: blablabla's Bucket
+  url: https://eu-central-1-1.aws.cloud2.influxdata.com

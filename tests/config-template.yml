@@ -1,0 +1,7 @@
+influxdbconn:
+  bucket: ++++++++++++++++++++++++++++++++
+  host: ++++++++++++++++++++++++++++++++
+  password: ++++++++++++
+  user: writer
+  type: mock
+logpath: log
