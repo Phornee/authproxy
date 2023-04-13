@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="authproxy",
-    version="0.0.3",
+    version="0.0.4",
     author="Ismael Raya",
     author_email="phornee@gmail.com",
     description="Reverse proxy with synology authentication",
@@ -17,6 +17,8 @@ setuptools.setup(
     package_data={
         '': ['*.yml'],
         'tests': ['data/*.*'],
+        'authproxy': ['authproxy_static/*.*'],
+        'templates': ['*.*'],
     },
     classifiers=[
         "Programming Language :: Python :: 3",
