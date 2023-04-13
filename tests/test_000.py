@@ -1,65 +1,60 @@
+""" unittesting """
 import unittest
 from pathlib import Path
 
-from homeservices import HomeServices
+from authproxy import AuthProxy
 
 
 class Testing(unittest.TestCase):
-    templates_path = "{}/templates".format(Path().absolute())
-    static_path = "{}/static".format(Path().absolute())
+    """ Unit testing class
+    """
+    def setUp(self):
+        test_config_path = f'{Path(__file__).parent}/data/config.yml'
+        self.authproxy = AuthProxy(template_config_path=test_config_path)
 
-    template_config_path = '{}/data/config-template.yml'.format(Path(__file__).parent)
-    service = HomeServices(template_folder=templates_path,
-                           static_folder=static_path,
-                           template_config_path=template_config_path)
-    client = service.getApp().test_client()
+    def test_0000_w3_noauth(self):
+        """ Test redirection to external site, without previously being authorized
+            Response should be the content of the sign in popup itself
+        """
+        mock_request = {'host': 'w3test.fakedomain.com',
+                        'method': 'GET',
+                        'endpoint': 'MarkUp/Test/HTML401/current/tests/sec5_3_1-BF-01.html',
+                        'headers': {},
+                        'params': '',
+                        'data': {},
+                        'cookies': {},
+                        'form': {}}
 
-    points = [{'time': '2022-12-19T13:32:02.501231Z', 'tags': {'sensorid': '1'},
-                                                      'fields': {'humidity': 53.3, 'temp': 20.3}},
-              {'time': '2022-12-19T13:30:02.442527Z', 'tags': {'sensorid': '1'},
-                                                      'fields': {'humidity': 53.3, 'temp': 20.3}},
-              {'time': '2022-12-19T13:28:03.145696Z', 'tags': {'sensorid': '1'},
-                                                      'fields': {'humidity': 53.3, 'temp': 20.3}},
-              {'time': '2022-12-19T13:26:02.852427Z', 'tags': {'sensorid': '1'},
-                                                      'fields': {'humidity': 53.4, 'temp': 20.2}},
-              {'time': '2022-12-19T13:32:02.501231Z', 'tags': {'sensorid': '2'},
-                                                      'fields': {'humidity': 53.3, 'temp': 20.3}},
-              {'time': '2022-12-19T13:30:02.442527Z', 'tags': {'sensorid': '2'},
-                                                      'fields': {'humidity': 53.3, 'temp': 20.3}},
-              {'time': '2022-12-19T13:28:03.145696Z', 'tags': {'sensorid': '2'},
-                                                      'fields': {'humidity': 53.3, 'temp': 20.3}},
-              {'time': '2022-12-19T13:26:02.852427Z', 'tags': {'sensorid': '2'},
-                                                      'fields': {'humidity': 53.4, 'temp': 20.2}},
-              {'time': '2022-12-19T13:32:02.501231Z', 'tags': {'sensorid': '3'},
-                                                      'fields': {'humidity': 53.3, 'temp': 20.3}},
-              {'time': '2022-12-19T13:30:02.442527Z', 'tags': {'sensorid': '3'},
-                                                      'fields': {'humidity': 53.3, 'temp': 20.3}},
-              {'time': '2022-12-19T13:28:03.145696Z', 'tags': {'sensorid': '3'},
-                                                      'fields': {'humidity': 53.3, 'temp': 20.3}},
-              {'time': '2022-12-19T13:26:02.852427Z', 'tags': {'sensorid': '3'},
-                                                      'fields': {'humidity': 53.4, 'temp': 20.2}}]
-    service.conn.insert('DHT22', points)
+        # Get response: as we are not authorized we should get the html of the sign in popup
+        response = self.authproxy._path_redirect(mock_request) # pylint: disable=protected-access
+        self.__class__.fresh_cookie_name = next(iter(response.created_local_cookies))
+        self.assertEqual(response.status, 200)
+        # Chech that it is indeed the popup
+        self.assertTrue(response.content.startswith('<!--authproxy-->'))
 
-    def test_index(self):
-        response = self.client.get('/')
-        self.assertEqual(response.status_code, 200)
+    def test_0001_w3_auth(self):
+        """ Test redirection to external site, being previously authorized
+            We simulate the authorization by using the freshly created cookie from the previous test
+        """
+        mock_request = {'host': 'w3test.fakedomain.com',
+                        'method': 'GET',
+                        'endpoint': 'MarkUp/Test/HTML401/current/tests/5_3_1-BF-01.html',
+                        'headers': {},
+                        'params': '',
+                        'data': {},
+                        'cookies': {'token':self.__class__.fresh_cookie_name},
+                        'form': {}}
 
-    def test_alexaintent(self):
-        response = self.client.get('/alexaintent')
-        self.assertEqual(response.status_code, 404)
-        response = self.client.get('/alexaintent?sensor=buhardilla')
-        self.assertEqual(response.status_code, 200)
-        response = self.client.get('/alexaintent?sensor=unexisting')
-        self.assertEqual(response.status_code, 404)
+        # Get response: as we are not authorized we should get the html of the sign in popup
+        response = self.authproxy._path_redirect(mock_request) # pylint: disable=protected-access
+        self.assertEqual(response.status, 200)
+        # Chech that it is indeed the result
+        test_result_path = f'{Path(__file__).parent}/data/test_result'
+        with open(test_result_path, 'r', encoding="utf8") as test_file:
+            ref_lines = test_file.read().splitlines()
 
-    def test_customsensor(self):
-        response = self.client.get('/customsensor')
-        self.assertEqual(response.status_code, 404)
-        response = self.client.get('/customsensor?sensor=buhardilla')
-        self.assertEqual(response.status_code, 200)
-        response = self.client.get('/customsensor?sensor=unexisting')
-        self.assertEqual(response.status_code, 404)
-
+        resp_lines = response.content.splitlines()
+        self.assertTrue(ref_lines == resp_lines)
 
 if __name__ == '__main__':
     unittest.main()

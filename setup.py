@@ -1,3 +1,4 @@
+""" Setup script """
 import setuptools
 
 with open("README.md", "r", encoding="utf-8") as fh:
@@ -5,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="authproxy",
-    version="0.0.0",
+    version="0.0.2",
     author="Ismael Raya",
     author_email="phornee@gmail.com",
     description="Reverse proxy with synology authentication",
@@ -15,6 +16,7 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     package_data={
         '': ['*.yml'],
+        'tests': ['data/*.*'],
     },
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -24,10 +26,7 @@ setuptools.setup(
     ],
     install_requires=[
         'Flask>=1.1.2',
-        'gunicorn>=20.1.0',
-        'flask-compress>=1.9.0',
-        'importlib-metadata>=4.5.0',
-        'tzlocal>=4.1',
+        'config_yml>=0.2.0'
     ],
     python_requires='>=3.6',
 )
